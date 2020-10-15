@@ -5,13 +5,13 @@ import reflection.orm.annotations.PrimaryKey;
 
 public class Person {
 
-    @PrimaryKey
+    @PrimaryKey(name="cid")
     private int id;
 
-    @Column
+    @Column(name="cname")
     private String name;
 
-    @Column
+    @Column(name="cage")
     private int age;
 
     public Person() {

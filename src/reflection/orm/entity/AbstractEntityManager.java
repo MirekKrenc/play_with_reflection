@@ -11,7 +11,7 @@ import java.sql.*;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class EntityManagerImpl<T> implements EntityManager<T> {
+public abstract class AbstractEntityManager<T> implements EntityManager<T> {
 
     private AtomicInteger idGenerator = new AtomicInteger(0);
 
@@ -23,8 +23,7 @@ public class EntityManagerImpl<T> implements EntityManager<T> {
         Metamodel<T> metamodel = Metamodel.of(t.getClass());
         String sql = metamodel.buildInsertRequest();
         
-        try {
-            PreparedStatement preparedStatement = prepareStatementWith(sql).andParameters(t);
+        try (PreparedStatement preparedStatement = prepareStatementWith(sql).andParameters(t);){
             preparedStatement.executeUpdate();
         } catch (SQLException | IllegalAccessException s) {
             s.printStackTrace();
@@ -36,10 +35,10 @@ public class EntityManagerImpl<T> implements EntityManager<T> {
         Metamodel metamodel = Metamodel.of(clazz);
         String sql = metamodel.buildSelectRequest();
 
-        PreparedStatement preparedStatement = prepareStatementWith(sql).andPrimaryKey(primaryKey);
-        final ResultSet resultSet = preparedStatement.executeQuery();
-
-        return buildInstance(clazz, resultSet);
+        try (PreparedStatement preparedStatement = prepareStatementWith(sql).andPrimaryKey(primaryKey);
+                    final ResultSet resultSet = preparedStatement.executeQuery();) {
+            return buildInstance(clazz, resultSet);
+        }
     }
 
     private T buildInstance(Class<T> clazz, ResultSet resultSet) throws NoSuchMethodException, IllegalAccessException, InvocationTargetException, InstantiationException, SQLException {
@@ -77,13 +76,12 @@ public class EntityManagerImpl<T> implements EntityManager<T> {
 
     private PreparedStatementWrapper prepareStatementWith(String sql)  {
         PreparedStatement preparedStatement = null;
-        Connection connection = null;
-                String urlJDBC = "jdbc:h2:tcp://localhost:8082/mem:testdb";
-                urlJDBC = "jdbc:h2:mem:testdb";
+        String urlJDBC = buildH2Connection();
+        Connection connection;
         try {
             connection = DriverManager.getConnection(urlJDBC, "sa", "");
 
-            preparedStatement = connection.prepareStatement("CREATE TABLE IF NOT EXISTS person (id int primary key,name varchar(40),age int);");
+            preparedStatement = connection.prepareStatement("CREATE TABLE IF NOT EXISTS person (cid int primary key,name varchar(40),age int);");
             preparedStatement.executeUpdate();
             preparedStatement = connection.prepareStatement(sql);
         } catch (SQLException e)
@@ -93,23 +91,22 @@ public class EntityManagerImpl<T> implements EntityManager<T> {
         return new PreparedStatementWrapper(preparedStatement);
     }
 
+    public abstract String buildH2Connection();
+
     @Override
     public Object findById(int id, Class<T> clazz) throws IllegalAccessException, InstantiationException, NoSuchMethodException, InvocationTargetException {
         Metamodel<T> mm = Metamodel.of(clazz);
-        String sql = "select * from " + clazz.getSimpleName() + " where id = ?";
+        String sql = "select * from " + clazz.getSimpleName() + " where cid = ?";
         T t = (T) clazz.getConstructor().newInstance();
         Object o =  null;
-        PreparedStatement preparedStatement = null;
-        Connection connection = null;
         String urlJDBC = "jdbc:h2:mem:testdb";
 
         final Field fieldId = mm.getPrimaryKey().getField();
         mm.getColumns().stream().map(c -> c.getField());
         Constructor<?> constructor = mm.getConstructor(2);
 
-        try {
-            connection = DriverManager.getConnection(urlJDBC, "sa", "");
-            preparedStatement = connection.prepareStatement(sql);
+        try (Connection connection = DriverManager.getConnection(urlJDBC, "sa", "");
+                 PreparedStatement preparedStatement = connection.prepareStatement(sql);){
             preparedStatement.setInt(1, id);
             final ResultSet resultSet = preparedStatement.executeQuery();
             if (resultSet != null) {
@@ -118,9 +115,7 @@ public class EntityManagerImpl<T> implements EntityManager<T> {
                             resultSet.getInt("age"));
                     System.out.println(resultSet.getString("name"));
                 }
-
             }
-
         } catch (SQLException | InvocationTargetException e)
         {
             e.printStackTrace();
